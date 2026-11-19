@@ -1,0 +1,80 @@
+import type { ISegmentStore } from '../../lib/features/segment/segment-store-type.js';
+import type {
+    IFeatureStrategySegment,
+    ISegment,
+} from '../../lib/types/model.js';
+
+export default class FakeSegmentStore implements ISegmentStore {
+    segments: ISegment[] = [];
+    strategySegments: IFeatureStrategySegment[] = [];
+    currentId: number = 0;
+
+    async count(): Promise<number> {
+        return this.segments.length;
+    }
+
+    async create(segment: Omit<ISegment, 'id'>): Promise<ISegment> {
+        const newSegment = { ...segment, id: this.currentId };
+        this.currentId = this.currentId + 1;
+        this.segments.push(newSegment);
+
+        return newSegment;
+    }
+
+    async delete(): Promise<void> {
+        return;
+    }
+
+    async deleteAll(): Promise<void> {
+        return;
+    }
+
+    async exists(): Promise<boolean> {
+        return false;
+    }
+
+    async get(id: number): Promise<ISegment | undefined> {
+        return this.segments.find((segment) => segment.id === Number(id));
+    }
+
+    async getAll(): Promise<ISegment[]> {
+        return [];
+    }
+
+    async getByStrategy(strategyId: string): Promise<ISegment[]> {
+        return this.strategySegments
+            .filter((row) => row.featureStrategyId === strategyId)
+            .flatMap((row) =>
+                this.segments.filter((segment) => segment.id === row.segmentId),
+            );
+    }
+
+    update(): Promise<ISegment> {
+        throw new Error('Method not implemented.');
+    }
+
+    async addToStrategy(id: number, strategyId: string): Promise<void> {
+        this.strategySegments.push({
+            featureStrategyId: strategyId,
+            segmentId: id,
+        });
+    }
+
+    removeFromStrategy(): Promise<void> {
+        throw new Error('Method not implemented.');
+    }
+
+    async getAllFeatureStrategySegments(): Promise<IFeatureStrategySegment[]> {
+        return [];
+    }
+
+    async existsByName(name: string): Promise<boolean> {
+        return this.segments.some((segment) => segment.name === name);
+    }
+
+    destroy(): void {}
+
+    async getProjectSegmentCount(): Promise<number> {
+        return 0;
+    }
+}

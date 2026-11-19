@@ -1,0 +1,341 @@
+import { json, jsonParseLinter } from '@codemirror/lang-json';
+import { linter } from '@codemirror/lint';
+import FormatIndentIncrease from '@mui/icons-material/FormatIndentIncrease';
+import {
+    Box,
+    Button,
+    type ButtonProps,
+    FormHelperText,
+    styled,
+    type Theme,
+    useTheme,
+} from '@mui/material';
+import CodeMirror, { EditorView, type Extension } from '@uiw/react-codemirror';
+import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
+
+export type EditorStyle = 'default' | 'embedded' | 'sidePanel' | 'fill';
+
+const fillOverrides = (theme: Theme) => ({
+    height: '100%',
+    border: 0,
+    backgroundColor: 'transparent',
+    '&:hover, &:focus-within': {
+        borderColor: 'transparent',
+        boxShadow: 'none',
+    },
+    '& .cm-editor': {
+        height: '100%',
+        backgroundColor: 'transparent',
+    },
+    '& .cm-gutters': {
+        backgroundColor: 'transparent',
+        color: theme.palette.text.secondary,
+    },
+});
+
+export type JSONContent = { text: string } | { json: unknown };
+
+type JSONEditorChange = (text: string) => void;
+
+interface IReactJSONEditorProps {
+    id?: string;
+    autoFocus?: boolean;
+    content: JSONContent;
+    onChange?: JSONEditorChange;
+    onBlur?: () => void;
+    placeholder?: string;
+    validationError?: string;
+    readOnly?: boolean;
+    statusBar?: boolean;
+    editorStyle?: EditorStyle;
+    formatButtonProps?: ButtonProps;
+}
+
+const StyledEditorWrapper = styled(Box, {
+    shouldForwardProp: (prop) => prop !== 'editorStyle' && prop !== 'hasError',
+})<{ editorStyle: EditorStyle; hasError: boolean }>(
+    ({ theme, editorStyle, hasError }) => ({
+        border: `1px solid ${
+            hasError ? theme.palette.error.main : theme.palette.divider
+        }`,
+        borderRadius: theme.shape.borderRadiusMedium,
+        overflow: 'hidden',
+        position: 'relative',
+        backgroundColor: theme.palette.background.paper,
+        minHeight:
+            editorStyle === 'sidePanel' || editorStyle === 'fill'
+                ? undefined
+                : theme.spacing(8),
+        '&:hover': {
+            borderColor: theme.palette.action.disabled,
+        },
+        '& .cm-cursor': {
+            borderLeftWidth: theme.spacing(0.2),
+            borderLeftColor: theme.palette.text.primary,
+        },
+        '&:focus-within': {
+            borderColor: hasError
+                ? theme.palette.error.main
+                : theme.palette.primary.main,
+            boxShadow: `0 0 0 1px ${
+                hasError ? theme.palette.error.main : theme.palette.primary.main
+            }`,
+        },
+        '& .cm-editor': {
+            backgroundColor: theme.palette.background.paper,
+            color: theme.palette.text.primary,
+            fontSize: theme.fontSizes.smallBody,
+            minHeight: 'inherit',
+            outline: 0,
+            position: 'relative',
+            zIndex: 0,
+        },
+        '& .cm-focused': {
+            outline: 0,
+        },
+        '& .cm-content': {
+            paddingTop: theme.spacing(1),
+            paddingRight: theme.spacing(12),
+            paddingBottom: theme.spacing(1),
+            minHeight: 'inherit',
+        },
+        '& .cm-placeholder': {
+            color: theme.palette.text.disabled,
+        },
+        '& .cm-gutters': {
+            backgroundColor: theme.palette.background.alternative,
+            borderRight: `1px solid ${theme.palette.divider}`,
+            color: theme.palette.text.secondary,
+            minHeight: 'inherit',
+        },
+        '& .cm-lineNumbers .cm-gutterElement': {
+            paddingLeft: theme.spacing(0.75),
+            paddingRight: theme.spacing(0.75),
+            textAlign: 'center',
+        },
+        '& .cm-gutter': {
+            minHeight: 'inherit',
+        },
+        '& .cm-line': {
+            paddingLeft: theme.spacing(1),
+            paddingRight: theme.spacing(1),
+        },
+        '& .cm-scroller': {
+            fontFamily: theme.typography.fontFamily,
+            minHeight: 'inherit',
+        },
+        '& .cm-activeLine, & .cm-activeLineGutter': {
+            backgroundColor: 'transparent',
+        },
+        '& .cm-selectionBackground, & .cm-content ::selection': {
+            backgroundColor: `${theme.palette.primary.light} !important`,
+        },
+        '& .cm-tooltip': {
+            backgroundColor: theme.palette.background.paper,
+            border: `1px solid ${theme.palette.divider}`,
+            borderRadius: theme.shape.borderRadiusMedium,
+            boxShadow: theme.shadows[3],
+        },
+        '& .cm-lintRange-error': {
+            backgroundImage: `linear-gradient(45deg, transparent 65%, ${theme.palette.error.main} 80%, transparent 90%),
+            linear-gradient(135deg, transparent 5%, ${theme.palette.error.main} 15%, transparent 25%),
+            linear-gradient(135deg, transparent 45%, ${theme.palette.error.main} 55%, transparent 65%),
+            linear-gradient(45deg, transparent 25%, ${theme.palette.error.main} 35%, transparent 50%)`,
+            backgroundPosition: '0 100%',
+            backgroundRepeat: 'repeat-x',
+            backgroundSize: '8px 3px',
+        },
+        '& .cm-diagnostic-error': {
+            borderLeftColor: theme.palette.error.main,
+        },
+        ...(editorStyle === 'embedded' &&
+            !hasError && {
+                borderColor: 'transparent',
+                '&:hover': {
+                    borderColor: 'transparent',
+                },
+            }),
+        ...(editorStyle === 'sidePanel' && fillOverrides(theme)),
+        ...(editorStyle === 'fill' && {
+            ...fillOverrides(theme),
+            minHeight: 0,
+            flex: 1,
+            overflow: 'hidden',
+            '& .cm-theme-none': {
+                height: '100%',
+            },
+            '& .cm-scroller': {
+                height: '100%',
+                overflow: 'auto',
+            },
+        }),
+    }),
+);
+
+const StyledFormatButton = styled(Button)(({ theme }) => ({
+    position: 'absolute',
+    top: theme.spacing(0.75),
+    right: theme.spacing(0.75),
+    zIndex: 1,
+    backgroundColor: theme.palette.background.paper,
+    '&:hover': {
+        backgroundColor: theme.palette.background.elevation1,
+    },
+}));
+
+const StyledStatusBar = styled('div')(({ theme }) => ({
+    padding: theme.spacing(0.5, 1),
+    borderTop: `1px solid ${theme.palette.divider}`,
+    backgroundColor: theme.palette.background.alternative,
+    color: theme.palette.text.secondary,
+    fontSize: theme.fontSizes.smallBody,
+}));
+
+const StyledEditorContainer = styled('div', {
+    shouldForwardProp: (prop) => prop !== 'editorStyle',
+})<{ editorStyle: EditorStyle }>(({ editorStyle }) => ({
+    width: '100%',
+    ...(editorStyle === 'fill' && {
+        height: '100%',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+    }),
+}));
+
+const contentToText = (content: JSONContent): string => {
+    if ('text' in content) {
+        return content.text;
+    }
+
+    return JSON.stringify(content.json, undefined, 2) ?? '';
+};
+
+const getJsonValidationError = (value: string): string | undefined => {
+    if (value.trim() === '') {
+        return undefined;
+    }
+
+    try {
+        JSON.parse(value);
+        return undefined;
+    } catch (error) {
+        if (error instanceof Error) {
+            return error.message;
+        }
+
+        return 'Invalid JSON';
+    }
+};
+
+const ReactJSONEditor: FC<IReactJSONEditorProps> = ({
+    id,
+    autoFocus,
+    content,
+    onChange,
+    onBlur,
+    placeholder,
+    validationError: validationErrorProp,
+    readOnly = false,
+    statusBar = false,
+    editorStyle = 'default',
+    formatButtonProps,
+}) => {
+    const theme = useTheme();
+    const value = useMemo(() => contentToText(content), [content]);
+    const [validationError, setValidationError] = useState<string>();
+    const extensions = useMemo(() => {
+        const extensions: Extension[] = [json()];
+        if (id) {
+            extensions.push(EditorView.contentAttributes.of({ id }));
+        }
+        if (!readOnly) {
+            extensions.push(linter(jsonParseLinter()));
+        }
+        return extensions;
+    }, [id, readOnly]);
+    const shouldValidateInternally =
+        !readOnly && validationErrorProp === undefined;
+
+    useEffect(() => {
+        setValidationError(
+            shouldValidateInternally
+                ? getJsonValidationError(value)
+                : undefined,
+        );
+    }, [shouldValidateInternally, value]);
+
+    const handleChange = useCallback(
+        (value: string) => {
+            if (shouldValidateInternally) {
+                setValidationError(getJsonValidationError(value));
+            }
+            onChange?.(value);
+        },
+        [onChange, shouldValidateInternally],
+    );
+
+    const formatJson = useCallback(() => {
+        let formatted: string;
+
+        try {
+            formatted = JSON.stringify(JSON.parse(value), undefined, 2);
+        } catch {
+            return;
+        }
+
+        onChange?.(formatted);
+    }, [onChange, value]);
+
+    const fillsHeight = editorStyle === 'sidePanel' || editorStyle === 'fill';
+    const minHeight = fillsHeight ? undefined : theme.spacing(10);
+    const visibleValidationError = validationErrorProp ?? validationError;
+
+    return (
+        <StyledEditorContainer editorStyle={editorStyle}>
+            <StyledEditorWrapper
+                editorStyle={editorStyle}
+                hasError={Boolean(visibleValidationError)}
+            >
+                {!readOnly ? (
+                    <StyledFormatButton
+                        size='medium'
+                        variant='outlined'
+                        startIcon={<FormatIndentIncrease />}
+                        {...formatButtonProps}
+                        onClick={formatJson}
+                    >
+                        Format
+                    </StyledFormatButton>
+                ) : null}
+                <CodeMirror
+                    value={value}
+                    autoFocus={autoFocus}
+                    placeholder={placeholder}
+                    minHeight={minHeight}
+                    height={fillsHeight ? '100%' : undefined}
+                    theme='none'
+                    extensions={extensions}
+                    onChange={handleChange}
+                    onBlur={onBlur}
+                    readOnly={readOnly}
+                    editable={!readOnly}
+                    basicSetup={{
+                        foldGutter: false,
+                        lineNumbers: false,
+                        highlightActiveLine: false,
+                        highlightActiveLineGutter: false,
+                    }}
+                />
+                {statusBar ? <StyledStatusBar>JSON</StyledStatusBar> : null}
+            </StyledEditorWrapper>
+            {visibleValidationError ? (
+                <FormHelperText error role='alert'>
+                    {visibleValidationError}
+                </FormHelperText>
+            ) : null}
+        </StyledEditorContainer>
+    );
+};
+
+export default ReactJSONEditor;

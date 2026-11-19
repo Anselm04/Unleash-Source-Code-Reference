@@ -1,0 +1,341 @@
+import type React from 'react';
+import { useState, type JSX } from 'react';
+import { useNavigate } from 'react-router';
+import { Button, styled, Box } from '@mui/material';
+import type {
+    IStrategyParameter,
+    StrategyFormState,
+} from 'interfaces/strategy';
+import { FeatureStrategyEnabled } from './FeatureStrategyEnabled/FeatureStrategyEnabled.tsx';
+import type { IFeatureToggle } from 'interfaces/featureToggle';
+import useUiConfig from 'hooks/api/getters/useUiConfig/useUiConfig';
+import { useUiFlag } from 'hooks/useUiFlag';
+import { STRATEGY_FORM_SUBMIT_ID } from 'utils/testIds';
+import {
+    constraintHasValues,
+    useConstraintsValidation,
+} from 'hooks/api/getters/useConstraintsValidation/useConstraintsValidation';
+import PermissionButton from 'component/common/PermissionButton/PermissionButton';
+import type { IFormErrors } from 'hooks/useFormErrors';
+import { validateParameterValue } from 'utils/validateParameterValue';
+import { useStrategy } from 'hooks/api/getters/useStrategy/useStrategy';
+import { FeatureStrategyChangeRequestAlert } from './FeatureStrategyChangeRequestAlert/FeatureStrategyChangeRequestAlert.tsx';
+import {
+    FeatureStrategyProdGuard,
+    useFeatureStrategyProdGuard,
+} from '../FeatureStrategyProdGuard/FeatureStrategyProdGuard.tsx';
+import { formatFeaturePath } from '../FeatureStrategyEdit/FeatureStrategyEdit.tsx';
+import { useChangeRequestInReviewWarning } from 'hooks/useChangeRequestInReviewWarning';
+import { usePendingChangeRequests } from 'hooks/api/getters/usePendingChangeRequests/usePendingChangeRequests';
+import { useTracking } from 'hooks/useTracking';
+import type { Tracking } from 'utils/trackingEvents';
+import { UpgradeChangeRequests } from '../../FeatureView/FeatureOverview/FeatureOverviewEnvironments/FeatureOverviewEnvironment/UpgradeChangeRequests/UpgradeChangeRequests.tsx';
+import { StrategyFormBodySelector } from './StrategyFormBodySelector.tsx';
+import type { ParametersSchema } from 'openapi/index.ts';
+import { strategyVariantsAreValid } from 'component/feature/StrategyTypes/strategyVariantsValidation';
+import {
+    FormFocusProvider,
+    parameterFocusKey,
+    useFormFocus,
+    variantsFocusKey,
+} from './formFocus.tsx';
+
+export type FailedVariantsSubmit = Record<string, never>;
+
+export interface IFeatureStrategyFormProps<T extends StrategyFormState> {
+    feature: IFeatureToggle;
+    environmentId: string;
+    permission: string;
+    onSubmit: () => void;
+    onCancel?: () => void;
+    loading: boolean;
+    changeRequestsEnabled: boolean;
+    strategy: T;
+    setStrategy: React.Dispatch<React.SetStateAction<T>>;
+    errors: IFormErrors;
+    canRenamePreexistingVariants?: boolean;
+    Limit?: JSX.Element;
+    disabled?: boolean;
+    tracking?: Tracking;
+}
+
+const StyledAlertBox = styled(Box)(({ theme }) => ({
+    paddingLeft: theme.spacing(6),
+    paddingRight: theme.spacing(6),
+    '& > *': {
+        marginTop: theme.spacing(2),
+        marginBottom: theme.spacing(2),
+    },
+}));
+
+const StyledIncompleteConstraintsNote = styled('span')(({ theme }) => ({
+    flexGrow: 1,
+    display: 'flex',
+    alignItems: 'center',
+    color: theme.palette.warning.dark,
+    fontSize: theme.typography.body2.fontSize,
+}));
+
+const incompleteConstraintsNote = (count: number): string =>
+    `${count} constraint${count === 1 ? '' : 's'} without values will be discarded unless you fill ${count === 1 ? 'it' : 'them'} in.`;
+
+export const FeatureStrategyForm = <T extends StrategyFormState>({
+    feature,
+    environmentId,
+    permission,
+    onSubmit,
+    onCancel,
+    loading,
+    strategy,
+    setStrategy,
+    errors,
+    changeRequestsEnabled,
+    canRenamePreexistingVariants,
+    Limit,
+    disabled,
+    tracking,
+}: IFeatureStrategyFormProps<T>) => {
+    const trackStrategyForm = useTracking(tracking);
+    const singlePageStrategyForm = useUiFlag('singlePageStrategyForm');
+    const [showProdGuard, setShowProdGuard] = useState(false);
+    const [failedVariantsSubmit, setFailedVariantsSubmit] =
+        useState<FailedVariantsSubmit>();
+    const { focusRegistry, focusFirst } = useFormFocus();
+    const hasValidConstraints = useConstraintsValidation(strategy.constraints, {
+        ignoreIncompleteConstraints: singlePageStrategyForm,
+    });
+    const incompleteConstraints = singlePageStrategyForm
+        ? (strategy.constraints ?? []).filter(
+              (constraint) => !constraintHasValues(constraint),
+          )
+        : [];
+    const enableProdGuard = useFeatureStrategyProdGuard(feature, environmentId);
+    const { strategyDefinition } = useStrategy(strategy.name);
+
+    const foundEnvironment = feature.environments.find(
+        (environment) => environment.name === environmentId,
+    );
+
+    const { data } = usePendingChangeRequests(feature.project);
+    const {
+        changeRequestInReviewOrApproved,
+        alert: changeRequestInReviewOrApprovedAlert,
+    } = useChangeRequestInReviewWarning(data);
+
+    const hasChangeRequestInReviewForEnvironment =
+        changeRequestInReviewOrApproved(environmentId || '');
+
+    const changeRequestButtonText = hasChangeRequestInReviewForEnvironment
+        ? 'Add to existing change request'
+        : 'Add change to draft';
+
+    const { isOss } = useUiConfig();
+    const showChangeRequestUpgrade =
+        foundEnvironment?.type === 'production' && isOss();
+
+    const navigate = useNavigate();
+
+    const envIsEnabled =
+        feature.environments.find((environment) => {
+            return environment.name === environmentId;
+        })?.enabled ?? false;
+    const environmentDisabledText = envIsEnabled
+        ? null
+        : `This flag is disabled in ${environmentId}, so changes won't take effect until you enable the environment.`;
+
+    const { error: uiConfigError, loading: uiConfigLoading } = useUiConfig();
+
+    if (uiConfigError) {
+        throw uiConfigError;
+    }
+
+    if (uiConfigLoading || !strategyDefinition) {
+        return null;
+    }
+
+    const findParameterDefinition = (name: string): IStrategyParameter => {
+        return strategyDefinition.parameters.find((parameterDefinition) => {
+            return parameterDefinition.name === name;
+        })!;
+    };
+
+    const validateParameter = (
+        name: string,
+        value?: ParametersSchema[string],
+    ): boolean => {
+        const parameterValueError = validateParameterValue(
+            findParameterDefinition(name),
+            value,
+        );
+        if (parameterValueError) {
+            errors.setFormError(name, parameterValueError);
+            return false;
+        } else {
+            errors.removeFormError(name);
+            return true;
+        }
+    };
+
+    const validateAllParameters = (): boolean => {
+        return strategyDefinition.parameters
+            .map((parameter) => parameter.name)
+            .map((name) => validateParameter(name, strategy.parameters?.[name]))
+            .every(Boolean);
+    };
+
+    const onCancelWithTracking = () => {
+        trackStrategyForm('dismissed', { method: 'cancel-button' });
+
+        if (onCancel) {
+            onCancel();
+        } else {
+            navigate(formatFeaturePath(feature.project, feature.name));
+        }
+    };
+
+    const validateVariants = (): boolean => {
+        const variantsAreValid =
+            !singlePageStrategyForm ||
+            strategyVariantsAreValid(strategy.variants ?? []);
+        setFailedVariantsSubmit(variantsAreValid ? undefined : {});
+        return variantsAreValid;
+    };
+
+    const invalidParameterNames = (): string[] =>
+        strategyDefinition.parameters
+            .filter((parameter) =>
+                validateParameterValue(
+                    parameter,
+                    strategy.parameters?.[parameter.name],
+                ),
+            )
+            .map((parameter) => parameter.name);
+
+    const onSubmitWithValidation = async () => {
+        const parametersAreValid = validateAllParameters();
+        const variantsAreValid = validateVariants();
+        if (!hasValidConstraints || !parametersAreValid || !variantsAreValid) {
+            trackStrategyForm.validationFailed();
+            focusFirst([
+                ...invalidParameterNames().map(parameterFocusKey),
+                ...(variantsAreValid ? [] : [variantsFocusKey]),
+            ]);
+            return;
+        }
+
+        if (enableProdGuard && !changeRequestsEnabled) {
+            setShowProdGuard(true);
+        } else {
+            onSubmit();
+        }
+    };
+
+    const legacyFormHasBlockingErrors =
+        !singlePageStrategyForm &&
+        (!hasValidConstraints || errors.hasFormErrors());
+
+    const changeRequestAlert = hasChangeRequestInReviewForEnvironment ? (
+        changeRequestInReviewOrApprovedAlert
+    ) : changeRequestsEnabled ? (
+        <FeatureStrategyChangeRequestAlert environment={environmentId} />
+    ) : null;
+
+    const alertContent = () => {
+        if (!changeRequestAlert) return null;
+        if (singlePageStrategyForm) return changeRequestAlert;
+
+        return <StyledAlertBox>{changeRequestAlert}</StyledAlertBox>;
+    };
+
+    const statusContent = () => {
+        if (changeRequestsEnabled) return null;
+        if (singlePageStrategyForm) return environmentDisabledText;
+
+        return (
+            <FeatureStrategyEnabled
+                projectId={feature.project}
+                featureId={feature.name}
+                environmentId={environmentId}
+            />
+        );
+    };
+
+    return (
+        <FormFocusProvider registry={focusRegistry}>
+            <StrategyFormBodySelector
+                strategy={strategy}
+                setStrategy={setStrategy}
+                strategyDefinition={strategyDefinition}
+                errors={errors}
+                failedVariantsSubmit={failedVariantsSubmit}
+                clearFailedVariantsSubmit={() =>
+                    setFailedVariantsSubmit(undefined)
+                }
+                validateParameter={validateParameter}
+                canRenamePreexistingVariants={canRenamePreexistingVariants}
+                payloadSchema={feature.payloadSchema}
+                alertContent={alertContent()}
+                allowEnableDisable
+                statusContent={statusContent()}
+                onSubmit={onSubmitWithValidation}
+                beforeFooter={
+                    <>
+                        <Box
+                            sx={{
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'flex-end',
+                                ':empty': { display: 'none' },
+                            }}
+                        >
+                            {Limit}
+                        </Box>
+
+                        {showChangeRequestUpgrade ? (
+                            <UpgradeChangeRequests />
+                        ) : null}
+                    </>
+                }
+            >
+                {incompleteConstraints.length > 0 ? (
+                    <StyledIncompleteConstraintsNote>
+                        {incompleteConstraintsNote(
+                            incompleteConstraints.length,
+                        )}
+                    </StyledIncompleteConstraintsNote>
+                ) : null}
+                <Button
+                    type='button'
+                    color='primary'
+                    onClick={onCancelWithTracking}
+                    disabled={loading}
+                >
+                    Cancel
+                </Button>
+                <PermissionButton
+                    permission={permission}
+                    projectId={feature.project}
+                    environmentId={environmentId}
+                    variant='contained'
+                    color='primary'
+                    type='submit'
+                    disabled={
+                        disabled || loading || legacyFormHasBlockingErrors
+                    }
+                    data-testid={STRATEGY_FORM_SUBMIT_ID}
+                >
+                    {changeRequestsEnabled
+                        ? changeRequestButtonText
+                        : 'Save strategy'}
+                </PermissionButton>
+                <FeatureStrategyProdGuard
+                    open={showProdGuard}
+                    onClose={() => setShowProdGuard(false)}
+                    onClick={onSubmit}
+                    loading={loading}
+                    label='Save strategy'
+                />
+            </StrategyFormBodySelector>
+        </FormFocusProvider>
+    );
+};

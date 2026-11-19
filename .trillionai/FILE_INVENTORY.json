@@ -1,0 +1,40 @@
+{
+  "upstream": "https://github.com/Unleash/unleash",
+  "upstream_commit": "a34044551ca6da16f73249616060e075534831af",
+  "upstream_tree": "97f9f980c20ebe4cc4ac53566bb3d8e43c76f343",
+  "upstream_tracked_entries": 7262,
+  "upstream_blob_files": 7262,
+  "expected_source_files": 7239,
+  "verified_source_files": 7239,
+  "excluded_paths": {
+    ".github/workflows/add-to-project.yml": "upstream workflow disabled",
+    ".github/workflows/ai-cflag-cleanup-copilot.yml": "upstream workflow disabled",
+    ".github/workflows/ai-flag-cleanup-pr.yml": "upstream workflow disabled",
+    ".github/workflows/ai-flag-cleanup.yml.disabled": "upstream workflow disabled",
+    ".github/workflows/auto-assign-pr-author.yaml": "upstream workflow disabled",
+    ".github/workflows/build.yaml": "upstream workflow disabled",
+    ".github/workflows/build_coverage.yaml": "upstream workflow disabled",
+    ".github/workflows/build_frontend_prs.yml": "upstream workflow disabled",
+    ".github/workflows/build_prs_jest_report.yaml": "upstream workflow disabled",
+    ".github/workflows/codeql-analysis.yml": "upstream workflow disabled",
+    ".github/workflows/core-feature-alert.yml": "upstream workflow disabled",
+    ".github/workflows/dependency-review.yml": "upstream workflow disabled",
+    ".github/workflows/docker_publish.yaml": "upstream workflow disabled",
+    ".github/workflows/e2e.frontend.yaml": "upstream workflow disabled",
+    ".github/workflows/flag-no-response.yaml": "upstream workflow disabled",
+    ".github/workflows/notify_enterprise.yaml": "upstream workflow disabled",
+    ".github/workflows/openapi-diff.yaml": "upstream workflow disabled",
+    ".github/workflows/pr_build.yaml": "upstream workflow disabled",
+    ".github/workflows/publish-new-version.yaml": "upstream workflow disabled",
+    ".github/workflows/release.yaml": "upstream workflow disabled",
+    ".github/workflows/update_contributors.yaml": "upstream workflow disabled",
+    ".github/workflows/update_version_for_version_checker.yml": "upstream workflow disabled",
+    ".github/workflows/validate-migrations.yaml": "upstream workflow disabled"
+  },
+  "missing_paths": [],
+  "mismatched_paths": [],
+  "extra_paths": [
+    ".github/workflows/import-reference.yml"
+  ],
+  "scope": "Tracked Git blobs; no external LFS payloads, submodule contents or full history."
+}

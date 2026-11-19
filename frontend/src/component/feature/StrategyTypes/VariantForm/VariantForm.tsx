@@ -1,0 +1,466 @@
+import { useEffect, useRef, useState } from 'react';
+import { defaultPayloadValue } from 'component/common/SchemaForm/schemaFormValues.ts';
+import Input from 'component/common/Input/Input.tsx';
+import SelectMenu from 'component/common/select.tsx';
+import { Button, InputAdornment, styled, Tooltip } from '@mui/material';
+import type { IPayload } from 'interfaces/featureToggle.ts';
+import { isNameUnique, isValidPayload } from '../strategyVariantsValidation.ts';
+import { WeightType } from 'constants/variantTypes.ts';
+import {
+    FIXED_WEIGHT_EXPLANATION,
+    TOTAL_WEIGHT,
+    VARIABLE_WEIGHT_EXPLANATION,
+} from '../variantWeights.ts';
+import { calculateVariantWeight } from 'component/common/util.ts';
+import { HelpIcon } from 'component/common/HelpIcon/HelpIcon.tsx';
+import { ScreenReaderOnly } from 'component/common/ScreenReaderOnly/ScreenReaderOnly.tsx';
+import type { IFeatureVariantEdit } from 'component/feature/variantEdit.ts';
+import type { FailedVariantsSubmit } from '../../FeatureStrategy/FeatureStrategyForm/FeatureStrategyForm.tsx';
+import Delete from '@mui/icons-material/Delete';
+import type { JsonSchemaProperty } from 'interfaces/jsonSchema.ts';
+import { useUiFlag } from 'hooks/useUiFlag.ts';
+import useUiConfig from 'hooks/api/getters/useUiConfig/useUiConfig.ts';
+import { PayloadValueField } from './PayloadValueField.tsx';
+
+export const variantNameInputId = (variantId: string) =>
+    `variant-name-input-${variantId}`;
+
+const variantPayloadValueId = (variantId: string) =>
+    `variant-payload-value-${variantId}`;
+
+const StyledVariantForm = styled('div')(({ theme }) => ({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(1.5),
+    padding: theme.spacing(2.5),
+    marginBottom: theme.spacing(3),
+    background: theme.palette.neutral.container,
+    border: `1px solid ${theme.palette.divider}`,
+    borderRadius: theme.shape.borderRadiusLarge,
+}));
+
+const TopRow = styled('div')(({ theme }) => ({
+    display: 'grid',
+    gridAutoFlow: 'column',
+    gridTemplateColumns: 'minmax(0, 1fr)',
+    gridAutoColumns: 'auto',
+    gap: theme.spacing(2),
+    alignItems: 'start',
+    [theme.breakpoints.down('sm')]: {
+        gridAutoFlow: 'row',
+        gridTemplateColumns: '1fr',
+    },
+}));
+
+const Dot = styled('span', {
+    shouldForwardProp: (prop) => prop !== 'color',
+})<{ color?: string }>(({ theme, color }) => ({
+    width: theme.spacing(1.5),
+    height: theme.spacing(1.5),
+    borderRadius: '50%',
+    background: color || 'transparent',
+    marginRight: theme.spacing(1),
+    verticalAlign: 'middle',
+    display: 'inline-block',
+}));
+
+const Field = styled('div')({
+    display: 'flex',
+    flexDirection: 'column',
+});
+
+const FieldLabelRow = styled('div')(({ theme }) => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    height: theme.spacing(2.5),
+}));
+
+const FieldLabel = styled('label')(({ theme }) => ({
+    fontSize: theme.typography.body2.fontSize,
+    fontWeight: theme.typography.fontWeightBold,
+    color: theme.palette.text.primary,
+}));
+
+const WeightInput = styled(Input)(({ theme }) => ({
+    width: theme.spacing(12),
+    [theme.breakpoints.down('sm')]: {
+        width: '100%',
+    },
+}));
+
+const PayloadTypeSelect = styled(SelectMenu)(({ theme }) => ({
+    minWidth: theme.spacing(20),
+}));
+
+const RemoveButton = styled(Button)(({ theme }) => ({
+    alignSelf: 'flex-start',
+    marginLeft: theme.spacing(-0.5),
+    color: theme.palette.text.secondary,
+    fontWeight: theme.typography.fontWeightRegular,
+    '&:hover': {
+        backgroundColor: 'transparent',
+        color: theme.palette.error.main,
+    },
+}));
+
+const payloadOptions = [
+    { key: 'string', label: 'string' },
+    { key: 'json', label: 'JSON' },
+    { key: 'csv', label: 'CSV' },
+    { key: 'number', label: 'number' },
+];
+
+const emptyPayload = (isNew: boolean, schema?: JsonSchemaProperty): IPayload =>
+    isNew && schema
+        ? {
+              type: 'json',
+              value: JSON.stringify(defaultPayloadValue(schema), null, 2),
+          }
+        : { type: 'string', value: '' };
+
+enum ErrorField {
+    NAME = 'name',
+    PAYLOAD = 'payload',
+}
+
+interface IVariantFormErrors {
+    [ErrorField.NAME]?: string;
+    [ErrorField.PAYLOAD]?: string;
+}
+
+const takenNameMessage =
+    'A variant with that name already exists for this environment.';
+
+const payloadError = (payload: IPayload): string | undefined => {
+    if (isValidPayload(payload)) return;
+
+    return payload.type === 'json' ? 'Invalid JSON' : 'Invalid number';
+};
+
+const submitAttemptErrors = ({
+    name,
+    payload,
+    otherVariants,
+    canRenameVariant,
+}: {
+    name: string;
+    payload: IPayload;
+    otherVariants: { name: string }[];
+    canRenameVariant: boolean;
+}): IVariantFormErrors => ({
+    [ErrorField.NAME]: !name
+        ? 'Variant name is required.'
+        : canRenameVariant && !isNameUnique(name, otherVariants)
+          ? takenNameMessage
+          : undefined,
+    [ErrorField.PAYLOAD]: payloadError(payload),
+});
+
+interface IVariantFormProps {
+    variant: IFeatureVariantEdit;
+    variants: IFeatureVariantEdit[];
+    updateVariant: (updatedVariant: IFeatureVariantEdit) => void;
+    changeWeight: (weight: number) => void;
+    removeVariant: (variantId: string) => void;
+    decorationColor?: string;
+    weightsError?: boolean;
+    payloadSchema?: JsonSchemaProperty;
+    failedVariantsSubmit?: FailedVariantsSubmit;
+    // a fresh object asks the form to focus its first errored field
+    erroredFieldFocusRequest?: Record<string, never>;
+}
+
+export const VariantForm = ({
+    variant,
+    variants,
+    updateVariant,
+    changeWeight,
+    removeVariant,
+    decorationColor,
+    weightsError,
+    payloadSchema,
+    failedVariantsSubmit,
+    erroredFieldFocusRequest,
+}: IVariantFormProps) => {
+    const { isEnterprise } = useUiConfig();
+    const payloadSchemasEnabled = useUiFlag('payloadSchemas') && isEnterprise();
+    const schemaActive = payloadSchemasEnabled && Boolean(payloadSchema);
+
+    const [name, setName] = useState(variant.name);
+    const hasFixedWeight = variant.weightType === WeightType.FIX;
+    const [percentage, setPercentage] = useState(
+        String(calculateVariantWeight(variant.weight)),
+    );
+    const [payload, setPayload] = useState<IPayload>(
+        variant.payload ||
+            emptyPayload(variant.new, schemaActive ? payloadSchema : undefined),
+    );
+
+    const [errors, setErrors] = useState<IVariantFormErrors>({});
+
+    const clearError = (field: ErrorField) => {
+        setErrors((errors) => ({ ...errors, [field]: undefined }));
+    };
+
+    const setError = (field: ErrorField, error: string) => {
+        setErrors((errors) => ({ ...errors, [field]: error }));
+    };
+
+    const canRenameVariant = Boolean(variant.new);
+    const weightInputVisible =
+        variants.filter(
+            ({ id, weightType }) =>
+                id !== variant.id && weightType === WeightType.VARIABLE,
+        ).length > 0;
+
+    const isProtectedVariant = (variant: IFeatureVariantEdit): boolean => {
+        const isVariable = variant.weightType === WeightType.VARIABLE;
+
+        const atLeastOneFixedVariant = variants.some((variant) => {
+            return variant.weightType === WeightType.FIX;
+        });
+
+        const hasOnlyOneVariableVariant =
+            variants.filter((variant) => {
+                return variant.weightType === WeightType.VARIABLE;
+            }).length === 1;
+
+        return (
+            atLeastOneFixedVariant && hasOnlyOneVariableVariant && isVariable
+        );
+    };
+
+    const otherVariants = variants.filter((other) => other.id !== variant.id);
+
+    const onSetName = (name: string) => {
+        clearError(ErrorField.NAME);
+        if (canRenameVariant && !isNameUnique(name, otherVariants)) {
+            setError(ErrorField.NAME, takenNameMessage);
+        }
+        setName(name.trim());
+    };
+
+    const fixedWeightOfOtherVariants = otherVariants
+        .filter((other) => other.weightType === WeightType.FIX)
+        .reduce((sum, other) => sum + other.weight, 0);
+    const maxPercentage = (TOTAL_WEIGHT - fixedWeightOfOtherVariants) / 10;
+
+    const onSetPercentage = (typedPercentage: string) => {
+        if (typedPercentage === '') {
+            setPercentage('');
+            return;
+        }
+        if (!isValidPercentage(typedPercentage)) {
+            return;
+        }
+        const percentage =
+            Number(typedPercentage) > maxPercentage
+                ? String(maxPercentage)
+                : typedPercentage;
+        setPercentage(percentage);
+        changeWeight(Math.round(Number(percentage) * 10));
+    };
+
+    const validatePayload = (payload: IPayload) => {
+        const error = payloadError(payload);
+        if (error) {
+            setError(ErrorField.PAYLOAD, error);
+        }
+    };
+
+    const isNameNotEmpty = (name: string) => Boolean(name.length);
+    const isValidPercentage = (percentage: string) => {
+        if (percentage === '') return false;
+        if (percentage.match(/\.[0-9]{2,}$/)) return false;
+
+        const percentageNumber = Number(percentage);
+        return percentageNumber >= 0 && percentageNumber <= 100;
+    };
+
+    // biome-ignore lint/correctness/useExhaustiveDependencies: needs follow-up
+    useEffect(() => {
+        const newVariant: IFeatureVariantEdit = {
+            ...variant,
+            name,
+            weight: variant.weight,
+            stickiness:
+                variants?.length > 0 ? variants[0].stickiness : 'default',
+            payload: payload.value ? payload : undefined,
+            isValid:
+                isNameNotEmpty(name) &&
+                (!canRenameVariant || isNameUnique(name, otherVariants)) &&
+                isValidPercentage(percentage) &&
+                isValidPayload(payload),
+        };
+        updateVariant(newVariant);
+    }, [name, percentage, payload]);
+
+    useEffect(() => {
+        setPercentage(String(calculateVariantWeight(variant.weight)));
+    }, [variant.weight]);
+
+    const [autoFocusPayloadEditor, setAutoFocusPayloadEditor] = useState(false);
+
+    const fieldsAtSubmitAttempt = useRef({
+        name,
+        payload,
+        otherVariants,
+        canRenameVariant,
+    });
+    fieldsAtSubmitAttempt.current = {
+        name,
+        payload,
+        otherVariants,
+        canRenameVariant,
+    };
+
+    useEffect(() => {
+        if (!failedVariantsSubmit) {
+            setAutoFocusPayloadEditor(false);
+            return;
+        }
+        setErrors(submitAttemptErrors(fieldsAtSubmitAttempt.current));
+    }, [failedVariantsSubmit]);
+
+    useEffect(() => {
+        if (!erroredFieldFocusRequest || !failedVariantsSubmit) return;
+        const errors = submitAttemptErrors(fieldsAtSubmitAttempt.current);
+        const fieldsInFormOrder = [
+            { error: errors.name, inputId: variantNameInputId(variant.id) },
+            {
+                error: errors.payload,
+                inputId: variantPayloadValueId(variant.id),
+            },
+        ];
+        const firstErroredField = fieldsInFormOrder.find(
+            (field) => field.error,
+        );
+        if (!firstErroredField) return;
+        const target = document.getElementById(firstErroredField.inputId);
+        if (target) {
+            target.focus();
+            return;
+        }
+        // CodeMirror renders later than the rest of the form, so we let
+        // the editor focus itself once it's ready
+        setAutoFocusPayloadEditor(true);
+    }, [erroredFieldFocusRequest, failedVariantsSubmit, variant.id]);
+
+    const weightError = weightsError ? 'Total weight may not exceed 100%' : '';
+
+    const weightInputId = `variant-weight-input-${variant.id}`;
+    const weightExplanationId = `${weightInputId}-explanation`;
+    const weightExplanation = hasFixedWeight
+        ? FIXED_WEIGHT_EXPLANATION
+        : VARIABLE_WEIGHT_EXPLANATION;
+    const valueInputId = variantPayloadValueId(variant.id);
+
+    return (
+        <StyledVariantForm data-testid='VARIANT'>
+            <TopRow>
+                <Input
+                    id={variantNameInputId(variant.id)}
+                    data-testid='VARIANT_NAME_INPUT'
+                    label={
+                        <>
+                            <Dot color={decorationColor} aria-hidden />
+                            Variant name
+                        </>
+                    }
+                    fullWidth
+                    error={Boolean(errors.name)}
+                    errorText={errors.name}
+                    value={name}
+                    onChange={(e) => onSetName(e.target.value)}
+                    disabled={!canRenameVariant}
+                    required
+                />
+                {weightInputVisible ? (
+                    <Field>
+                        <FieldLabelRow>
+                            <FieldLabel htmlFor={weightInputId}>
+                                Weight
+                            </FieldLabel>
+                            <HelpIcon tooltip={weightExplanation} />
+                        </FieldLabelRow>
+                        <WeightInput
+                            id={weightInputId}
+                            data-testid='VARIANT_WEIGHT_INPUT'
+                            type='number'
+                            label=''
+                            error={Boolean(weightError)}
+                            errorText={weightError}
+                            value={percentage}
+                            onChange={(e) => onSetPercentage(e.target.value)}
+                            slotProps={{
+                                input: {
+                                    endAdornment: (
+                                        <InputAdornment position='end'>
+                                            %
+                                        </InputAdornment>
+                                    ),
+                                },
+                                htmlInput: {
+                                    min: 0,
+                                    max: maxPercentage,
+                                    step: 'any', // auto-split weights have decimals; the browser's default step of 1 would reject them on submit
+                                    'aria-describedby': weightExplanationId,
+                                },
+                            }}
+                        />
+                        <ScreenReaderOnly id={weightExplanationId}>
+                            {weightExplanation}
+                        </ScreenReaderOnly>
+                    </Field>
+                ) : null}
+                <PayloadTypeSelect
+                    id='variant-payload-type'
+                    name='type'
+                    label='Payload type'
+                    value={payload.type}
+                    options={payloadOptions}
+                    onChange={(e) => {
+                        clearError(ErrorField.PAYLOAD);
+                        setPayload((payload) => ({
+                            ...payload,
+                            type: e.target.value as typeof payload.type,
+                        }));
+                    }}
+                />
+            </TopRow>
+            <PayloadValueField
+                value={payload}
+                onChange={(next) => {
+                    clearError(ErrorField.PAYLOAD);
+                    setPayload(next);
+                }}
+                payloadSchema={schemaActive ? payloadSchema : undefined}
+                id={valueInputId}
+                autoFocusJsonEditor={autoFocusPayloadEditor}
+                error={errors.payload}
+                onBlur={() => validatePayload(payload)}
+            />
+            <Tooltip
+                arrow
+                title={
+                    isProtectedVariant(variant)
+                        ? 'You need to have at least one variable variant'
+                        : ''
+                }
+            >
+                <span>
+                    <RemoveButton
+                        variant='text'
+                        startIcon={<Delete />}
+                        data-testid={`VARIANT_DELETE_BUTTON_${variant.name}`}
+                        onClick={() => removeVariant(variant.id)}
+                        disabled={isProtectedVariant(variant)}
+                    >
+                        Remove variant
+                    </RemoveButton>
+                </span>
+            </Tooltip>
+        </StyledVariantForm>
+    );
+};

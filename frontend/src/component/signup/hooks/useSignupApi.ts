@@ -1,0 +1,34 @@
+import useAPI from 'hooks/api/actions/useApi/useApi';
+
+export type SubmitSignupData = {
+    password: string;
+    name: string;
+    companyRole: string;
+    companyName: string;
+    companyIsNA: boolean;
+    hearAboutUs: string;
+    productUpdatesEmailConsent: boolean;
+};
+
+const ENDPOINT = 'api/admin/signup';
+
+export const useSignupApi = () => {
+    const { makeRequest, createRequest, errors, loading } = useAPI({
+        propagateErrors: true,
+    });
+
+    const submitSignupData = async (signupData: SubmitSignupData) => {
+        const req = createRequest(ENDPOINT, {
+            method: 'POST',
+            body: JSON.stringify(signupData),
+        });
+
+        await makeRequest(req.caller, req.id);
+    };
+
+    return {
+        submitSignupData,
+        errors,
+        loading,
+    };
+};
