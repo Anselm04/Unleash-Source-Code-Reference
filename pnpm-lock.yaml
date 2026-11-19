@@ -816,8 +816,8 @@ importers:
         specifier: 14.4.1
         version: 14.4.1(react@19.2.8)
       react-error-boundary:
-        specifier: 3.1.4
-        version: 3.1.4(react@19.2.8)
+        specifier: 6.1.6
+        version: 6.1.6(@types/react@19.2.18)(react@19.2.8)
       react-github-calendar:
         specifier: ^4.5.11
         version: 4.5.11(react@19.2.8)
@@ -5337,11 +5337,14 @@ packages:
     peerDependencies:
       react: ^19.0.0
 
-  react-error-boundary@3.1.4:
-    resolution: {integrity: sha512-uM9uPzZJTF6wRQORmSrvOIgt4lJ9MC1sNgEOj2XGsDTRE4kmpWxg7ENK9EWNKJRMAOY9z0MuF4yIfl6gp4sotA==}
-    engines: {node: '>=10', npm: '>=6'}
+  react-error-boundary@6.1.6:
+    resolution: {integrity: sha512-CDXPnXDGyFIbkwaaJ6u+xgsRmJhSi6YdgUDW1vnyKHfXp1a9pfAlM+ZET2CDu80/A+8iRcmXN0NSY9BCCoWP5A==}
     peerDependencies:
+      '@types/react': ^19.0.0
       react: ^19.0.0
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
 
   react-fast-compare@2.0.4:
     resolution: {integrity: sha512-suNP+J1VU1MWFKcyt7RtjiSWUjvidmQSlqu+eHslq+342xCbGTYmC0mEhPCOHxlW0CywylOC1u2DFAT+bv4dBw==}
@@ -11069,10 +11072,11 @@ snapshots:
       prop-types: 15.8.1
       react: 19.2.8
 
-  react-error-boundary@3.1.4(react@19.2.8):
+  react-error-boundary@6.1.6(@types/react@19.2.18)(react@19.2.8):
     dependencies:
-      '@babel/runtime': 7.29.7
       react: 19.2.8
+    optionalDependencies:
+      '@types/react': 19.2.18
 
   react-fast-compare@2.0.4: {}
 
