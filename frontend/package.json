@@ -122,7 +122,7 @@
     "react-draggable": "4.7.2",
     "react-dropzone": "14.4.1",
     "react-error-boundary": "3.1.4",
-    "react-github-calendar": "^4.5.11",
+    "react-github-calendar": "^5.0.9",
     "react-grid-layout": "^1.5.3",
     "react-hooks-global-state": "2.1.0",
     "react-joyride": "^2.9.3",
